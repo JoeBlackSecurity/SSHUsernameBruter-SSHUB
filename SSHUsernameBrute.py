@@ -106,7 +106,7 @@ def checkUsername(runArray, tried=0):
                 saveFile(username, host, port, out)
         else:
             saveFile(username, host, port, out)
-        print "[+] " + str(host) + ':' + str(port) + ' - ' + username + " - Valid user found."
+            print "[+] " + str(host) + ':' + str(port) + ' - ' + username + " - Valid user found."
         return (True)
     #Successful auth(?)
     raise Exception("There was an error. Is this the correct version of OpenSSH?")
