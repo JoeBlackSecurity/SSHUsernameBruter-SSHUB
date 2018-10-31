@@ -168,7 +168,7 @@ def trySocket(host, port, tried=0):
     print "Testing host: " + host + ":" + str(port)
     sock = socket.socket()
     try:
-        sock.settimeout(3)
+        sock.settimeout(10)
         sock.connect((host, port))
         sock.close()
     except socket.error:
@@ -380,8 +380,3 @@ def run_line():
     
 if __name__ == "__main__":
     run_line()
-        
-        
-        
-                    # except paramiko.ssh_exception.SSHException:
-                # print "Error with host: " + host + ". Moving on..."
